@@ -4,16 +4,16 @@ export async function POST(request) {
   try {
     const userData = await request.json()
     
-    // Check which API to use (priority: HuggingFace > Claude > Gemini > OpenAI > Demo)
+    // Check which API to use (priority: Gemini > HuggingFace > Claude > OpenAI > Demo)
+    const useGemini = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_key_here'
     const useHuggingFace = process.env.HUGGINGFACE_API_KEY && process.env.HUGGINGFACE_API_KEY !== 'your_huggingface_key_here'
     const useClaude = process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY !== 'your_claude_key_here'
-    const useGemini = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_key_here'
     const useOpenAI = process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_key_here'
     const useDemoMode = process.env.DEMO_MODE === 'true'
     
-    if (!useHuggingFace && !useClaude && !useGemini && !useOpenAI && !useDemoMode) {
+    if (!useGemini && !useHuggingFace && !useClaude && !useOpenAI && !useDemoMode) {
       return NextResponse.json(
-        { error: 'No AI API key configured. Get a free key from https://huggingface.co/settings/tokens' },
+        { error: 'No AI API key configured. Get a free Gemini key from https://aistudio.google.com/apikey' },
         { status: 500 }
       )
     }
@@ -36,11 +36,46 @@ Provide:
 3. Lifestyle and posture tips
 4. A motivational quote
 
-Format the response as JSON with keys: workout, diet, tips, motivation`
+IMPORTANT: Return ONLY valid JSON with this exact structure (no markdown, no code blocks):
+{
+  "workout": "string with workout plan",
+  "diet": "string with diet plan",
+  "tips": "string with tips",
+  "motivation": "string with motivational quote"
+}
+
+Make sure all strings are properly escaped and there are no trailing commas.`
 
     let content
 
-    if (useHuggingFace) {
+    if (useGemini) {
+      // Using Google Gemini 2.0 Flash (Free tier - unlimited)
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: prompt
+            }]
+          }]
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('Gemini API Error:', errorData)
+        return NextResponse.json(
+          { error: `Gemini API Error: ${errorData.error?.message || 'Unknown error'}` },
+          { status: response.status }
+        )
+      }
+
+      const data = await response.json()
+      content = data.candidates[0].content.parts[0].text
+    } else if (useHuggingFace) {
       // Using Hugging Face Inference API (Free - no credits needed)
       // Using Mistral-7B which is free and powerful
       const response = await fetch('https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2', {
@@ -231,8 +266,8 @@ CONSISTENCY:
       const data = await response.json()
       content = data.content[0].text
     } else if (useGemini) {
-      // Using Google Gemini API (Free tier available)
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+      // Using Google Gemini API (Free tier - unlimited)
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${process.env.GEMINI_API_KEY}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -257,7 +292,7 @@ CONSISTENCY:
 
       const data = await response.json()
       content = data.candidates[0].content.parts[0].text
-    } else {
+    } else if (useOpenAI) {
       // Using OpenAI API
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -291,14 +326,129 @@ CONSISTENCY:
     // Try to parse as JSON, fallback to text parsing
     let plan
     try {
-      plan = JSON.parse(content)
-    } catch {
-      // Fallback: split content into sections
-      plan = {
-        workout: content.split('DIET')[0] || content,
-        diet: content.split('DIET')[1]?.split('TIPS')[0] || 'See workout section',
-        tips: content.split('TIPS')[1] || 'Stay consistent and hydrated!',
-        motivation: 'Your only limit is you!'
+      // Remove markdown code blocks if present
+      let cleanContent = content.trim()
+      if (cleanContent.startsWith('```json')) {
+        cleanContent = cleanContent.replace(/```json\n?/g, '').replace(/```\n?$/g, '').trim()
+      } else if (cleanContent.startsWith('```')) {
+        cleanContent = cleanContent.replace(/```\n?/g, '').trim()
+      }
+      
+      // Fix common JSON issues
+      cleanContent = cleanContent
+        .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
+        .replace(/\n/g, ' ') // Remove newlines that might break parsing
+        .replace(/\r/g, '') // Remove carriage returns
+      
+      const parsed = JSON.parse(cleanContent)
+      
+      // Handle nested workout object from Gemini
+      if (parsed.workout && typeof parsed.workout === 'object' && parsed.workout.description) {
+        // Convert nested workout object to readable string
+        let workoutText = parsed.workout.description + '\n\n'
+        if (parsed.workout.schedule) {
+          parsed.workout.schedule.forEach(day => {
+            workoutText += `\n${day.monday || day.tuesday || day.wednesday || day.thursday || day.friday || day.saturday || day.sunday || 'Day'}\n`
+            workoutText += `Focus: ${day.focus}\n`
+            if (day.exercises) {
+              day.exercises.forEach(ex => {
+                workoutText += `• ${ex.name}: ${ex.sets} sets x ${ex.reps} reps (Rest: ${ex.rest})\n`
+                if (ex.instructions) workoutText += `  ${ex.instructions}\n`
+              })
+            }
+          })
+        }
+        parsed.workout = workoutText
+      }
+      
+      // Handle nested diet object - more comprehensive
+      if (parsed.diet && typeof parsed.diet === 'object') {
+        let dietText = ''
+        
+        // Handle description
+        if (parsed.diet.description) {
+          dietText += parsed.diet.description + '\n\n'
+        }
+        
+        // Handle daily_calorie_target
+        if (parsed.diet.daily_calorie_target) {
+          dietText += `Daily Calorie Target: ${parsed.diet.daily_calorie_target}\n`
+        }
+        
+        // Handle diet_type
+        if (parsed.diet.diet_type) {
+          dietText += `Diet Type: ${parsed.diet.diet_type}\n\n`
+        }
+        
+        // Handle meals array
+        if (parsed.diet.meals && Array.isArray(parsed.diet.meals)) {
+          parsed.diet.meals.forEach(meal => {
+            dietText += `\n${meal.meal_name || meal.name || 'Meal'}`
+            if (meal.time) dietText += ` (${meal.time})`
+            if (meal.calories) dietText += ` - ${meal.calories}`
+            dietText += '\n'
+            
+            if (meal.items && Array.isArray(meal.items)) {
+              meal.items.forEach(item => {
+                dietText += `• ${item}\n`
+              })
+            }
+          })
+        }
+        
+        // Handle hydration
+        if (parsed.diet.hydration) {
+          dietText += `\n\nHYDRATION: ${parsed.diet.hydration}`
+        }
+        
+        // Handle supplements
+        if (parsed.diet.supplements) {
+          dietText += `\nSUPPLEMENTS: ${parsed.diet.supplements}`
+        }
+        
+        parsed.diet = dietText
+      }
+      
+      // Handle nested tips object
+      if (parsed.tips && typeof parsed.tips === 'object') {
+        let tipsText = ''
+        Object.keys(parsed.tips).forEach(key => {
+          tipsText += `\n${key.toUpperCase()}:\n`
+          if (Array.isArray(parsed.tips[key])) {
+            parsed.tips[key].forEach(tip => tipsText += `• ${tip}\n`)
+          } else {
+            tipsText += `${parsed.tips[key]}\n`
+          }
+        })
+        parsed.tips = tipsText
+      }
+      
+      plan = parsed
+    } catch (e) {
+      console.error('JSON Parse Error:', e)
+      console.log('Raw content:', content.substring(0, 500))
+      
+      // Fallback: Try to extract JSON from text
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const extracted = jsonMatch[0]
+            .replace(/,(\s*[}\]])/g, '$1')
+            .replace(/\n/g, ' ')
+            .replace(/\r/g, '')
+          plan = JSON.parse(extracted)
+        } else {
+          throw new Error('No JSON found')
+        }
+      } catch (e2) {
+        console.error('Fallback parse also failed:', e2)
+        // Final fallback: split content into sections
+        plan = {
+          workout: content.split('DIET')[0] || content,
+          diet: content.split('DIET')[1]?.split('TIPS')[0] || 'See workout section',
+          tips: content.split('TIPS')[1] || 'Stay consistent and hydrated!',
+          motivation: 'Your only limit is you!'
+        }
       }
     }
 

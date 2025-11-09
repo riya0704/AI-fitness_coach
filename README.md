@@ -22,6 +22,19 @@ An AI-powered fitness assistant built with **Next.js** that generates personaliz
 - **PDF**: jsPDF
 - **Icons**: Lucide React
 
+## ✨ All Features Implemented
+
+✅ Personalized AI workout & diet plans  
+✅ Voice features (Text-to-Speech)  
+✅ AI image generation for exercises & meals  
+✅ PDF export  
+✅ Dark/Light mode toggle  
+✅ Local storage  
+✅ Cloud storage (Supabase - optional)  
+✅ Smooth animations (Framer Motion)  
+✅ Motivational quotes  
+✅ Regenerate plan option  
+
 ## 📦 Installation
 
 1. Clone the repository
@@ -46,8 +59,12 @@ npm run dev
 
 ## 🔑 API Keys
 
-- **OpenAI**: Get from [platform.openai.com](https://platform.openai.com)
-- **ElevenLabs**: Get from [elevenlabs.io](https://elevenlabs.io)
+- **Gemini**: Get from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) (FREE & UNLIMITED)
+- **ElevenLabs**: Get from [elevenlabs.io](https://elevenlabs.io) (Free tier available)
+- **Replicate**: Get from [replicate.com](https://replicate.com) (For image generation)
+- **Supabase** (Optional): Get from [supabase.com](https://supabase.com) (For cloud storage)
+
+See `SUPABASE_SETUP.md` for Supabase configuration.
 
 ## 🎯 Usage
 
